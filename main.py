@@ -1,3 +1,5 @@
+import os
+
 import pymorphy2
 from flask import Flask
 from flask import render_template, redirect, request, flash
@@ -22,7 +24,7 @@ api = Api(app)
 
 def main():
     db_session.global_init("db/web-project.db")
-    app.run()
+    app.run(port=int(os.environ.get("PORT", 5000)))
     db_sess = db_session.create_session()
 
 
