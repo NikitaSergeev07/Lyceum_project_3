@@ -1,5 +1,3 @@
-import os
-
 import pymorphy2
 from flask import Flask
 from flask import render_template, redirect, request, flash
@@ -14,13 +12,12 @@ from data.users import User
 from forms.object import ObjectForm
 from forms.user import LoginForm
 from forms.user import RegisterForm
-from cloudipsp import Api, Checkout
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
 login_manager = LoginManager()
 login_manager.init_app(app)
-
+api = Api(app)
 
 
 def main():
@@ -63,8 +60,12 @@ def reqister():
 @app.route("/")
 def index():
     db_sess = db_session.create_session()
-    objects = db_sess.query(Objects)
-    return render_template("index.html", objects=objects)
+    if current_user.is_authenticated:
+        events = db_sess.query(Objects).filter(
+            (Objects.user == current_user))
+    else:
+        events = db_sess.query(Objects)
+    return render_template("index.html", objects=events)
 
 
 # Функция поиска
@@ -74,7 +75,10 @@ def search():
         db_sess = db_session.create_session()
         mess = request.form['mess']
         # Если что сократить все до первого запроса
-        result = db_sess.query(Objects).filter(Objects.title.like(f'%{mess}%'))
+        result = db_sess.query(Objects).filter(
+            Objects.title.like(f'%{mess}%') | (Objects.title.like(f'{mess}%%')) | (Objects.title.like(f'%%{mess}')) | (
+                Objects.title.like(f'{mess}%{mess}')) | (Objects.title.like(f'%{mess}{mess}')) | (
+                Objects.title.like(f'{mess}{mess}%')))
         count = 0
         for i in result:
             if i.title:
@@ -95,30 +99,6 @@ def abort_if_news_not_found(objects_id):
     objects = session.query(Objects).get(objects_id)
     if not objects:
         abort(404, message=f"Objects {objects_id} not found")
-
-
-@app.route('/buy/<int:id>')
-def buy(id):
-    db_sess = db_session.create_session()
-    objects = db_sess.query(Objects).filter(Objects.id == id)
-    if objects:
-        return render_template('event.html', objects=objects)
-
-@app.route('/item_buy/<int:id>')
-def item_buy(id):
-    db_sess = db_session.create_session()
-    item = db_sess.query(Objects).get(id)
-    api = Api(merchant_id=1396424,
-              secret_key='test')
-    checkout = Checkout(api=api)
-    data = {
-        "currency": "RUB",
-        "amount": str(item.price) + "00"
-    }
-    url = checkout.url(data).get('checkout_url')
-    return redirect(url)
-
-
 
 
 @app.route('/contact', methods=["POST", "GET"])
@@ -142,14 +122,30 @@ def contact():
     return render_template('contact.html')
 
 
+# TODO /account/<int:id> и пихнуть это в account.html обработку /account/{{current_user.id}}
 @app.route('/account')
 @login_required
 def account():
     db_sess = db_session.create_session()
-    objects = db_sess.query(Objects).filter(
-        (Objects.user == current_user)
-    )
+    if current_user.is_authenticated:
+        objects = db_sess.query(Objects).filter(
+            (Objects.user == current_user))
+    else:
+        objects = db_sess.query(Objects)
     return render_template("account.html", objects=objects)
+
+
+@app.route('/event/<int:id>', methods=["GET", "POST"])
+def event(id):
+    if request.method == "GET" or request.method == "POST":
+        db_sess = db_session.create_session()
+        events = db_sess.query(Objects).filter(Objects.id == id,
+                                               Objects.user == current_user
+                                               ).first()
+        if events:
+            return render_template('event.html', objects=events)
+        else:
+            abort(404)
 
 
 @app.route('/log_out')
@@ -190,7 +186,7 @@ def add_objects():
         db_sess.merge(current_user)
         db_sess.commit()
         return redirect('/')
-    return render_template('object.html', title='Добавление товара',
+    return render_template('object.html', title='Добавление новости',
                            form=form)
 
 
@@ -269,5 +265,4 @@ def about():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    main()
